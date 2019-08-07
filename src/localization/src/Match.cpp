@@ -1,0 +1,392 @@
+#include "Match.h"
+
+#define DEBUG 0
+
+//构造函数做初始化
+Match::Match()
+{
+    first_laser_ = true;    //标志位
+
+    //特征点云
+    laser_.clear();
+    pre_laser_.clear();
+
+    //三维位姿
+    x_ = 0;
+    y_ = 0;
+    z_ = 0;
+    
+    roll_ = 0;
+    pitch_ = 0;
+    yaw_ = 0;
+    
+    pre_x_ = 0;
+    pre_y_ = 0;
+    pre_z_ = 0;
+    
+    v_x_ = 0;
+    v_y_ = 0;
+    v_z_ = 0;
+}
+
+//析构函数
+Match::~Match()
+{}
+
+
+//处理遮挡
+void Match::deleteHide(pcl::PointCloud<pcl::PointXYZI> laser)
+{
+#if DEBUG
+    ROS_INFO_STREAM("delete false feature");
+#endif
+
+    sort(laser.begin(), laser.end(), compareAngle);     //排序
+    for(int i = 0; i < laser.points.size(); i ++)
+    {
+        //计算相邻两个点的夹角
+        pcl::PointXYZI point1 = laser.points[i];
+        pcl::PointXYZI point2 = laser.points[(i + 1) % laser.points.size()];
+        float dis1 = sqrt(pow(point1.x, 2) + pow(point1.y, 2));
+        float dis2 = sqrt(pow(point2.x, 2) + pow(point2.y, 2));
+        float angle1 = pcl::rad2deg(atan2(point1.x, point1.y));
+        float angle2 = pcl::rad2deg(atan2(point2.x, point2.y));
+        float delta_angle = fabs(angle2 - angle1);
+        if(delta_angle > 180.0)
+            delta_angle -= 360.0;
+
+        if(fabs(delta_angle) < 1.0)
+        {
+            if(dis1 < dis2)
+            {
+                laser_.push_back(point1);
+                i ++;
+            }
+        }
+        else
+        {
+            laser_.push_back(point1);
+        }
+    }
+}
+
+//输入点云
+void Match::setPointCloud(pcl::PointCloud<pcl::PointXYZI> laser)
+{
+#if DEBUG
+    ROS_INFO_STREAM("set feature points");
+#endif
+
+    laser_.clear();
+    deleteHide(laser);
+
+}
+
+//地面参数方程
+void Match::setGroundMatrix(Eigen::Vector4f ground)
+{
+#if DEBUG
+    ROS_INFO_STREAM("set ground matrix");
+#endif
+
+    ground_matrix_ = ground;
+}
+
+
+//上下两帧匹配
+void Match::matchPreLaser()
+{
+#if DEBUG
+    ROS_INFO_STREAM("match from prev laser");
+#endif
+
+    //构建kd树
+    pcl::KdTreeFLANN<pcl::PointXYZI> kdtree;
+    kdtree.setInputCloud(pre_laser_.makeShared());
+
+    //迭代优化
+    for(int iter = 1; iter < 4; iter ++)
+    {
+        pcl::PointCloud<pcl::PointXYZI> laserCloudOri, coeff;
+        //在上一帧中找最近点匹配
+        for(pcl::PointXYZI point : laser_)
+        {
+            pcl::PointXYZI pointSel;
+            pointSel.x = cos(delta_yaw_) * point.x - sin(delta_yaw_) * point.y + delta_x_;
+            pointSel.y = sin(delta_yaw_) * point.x + cos(delta_yaw_) * point.y + delta_y_;
+            pointSel.z = point.z;
+
+            //kd树找最近点
+            std::vector<int> indices;
+            std::vector<float> distances;
+            kdtree.nearestKSearch(pointSel, 1, indices, distances);
+            if(sqrt(distances[0]) > 1.0 / iter)
+                continue;
+
+            //计算点点距
+            laserCloudOri.push_back(point);
+            pcl::PointXYZI coe;
+            coe.x = pre_laser_.points[indices[0]].x - pointSel.x;
+            coe.y = pre_laser_.points[indices[0]].y - pointSel.y;
+	    coeff.push_back(coe);
+        }
+
+        //超过2个点就可以计算
+        if(coeff.points.size() >= 2)
+        {
+            Eigen::MatrixXf fx(2 * coeff.points.size(), 1);
+            for(int i = 0; i < coeff.points.size(); i ++)
+            {
+                fx(2 * i, 0) = coeff.points[i].x;
+                fx(2 * i + 1, 0) = coeff.points[i].y;
+            }
+            Eigen::MatrixXf jacobi = computeJacobi(laserCloudOri, delta_yaw_);
+            Eigen::MatrixXf JTJ = jacobi.transpose() * jacobi;
+            Eigen::MatrixXf JTF = jacobi.transpose() * fx;
+            Eigen::MatrixXf delta = JTJ.ldlt().solve(JTF);
+           
+	        delta_x_ += delta(0);
+            delta_y_ += delta(1);
+            delta_yaw_ += delta(2);
+
+	    if(sqrt(pow(delta(0), 2) + pow(delta(1), 2)) < 0.001 && pcl::rad2deg(delta(2)) < 0.1)
+	    {
+	         break;
+	    }
+        }
+    }
+
+}
+
+//返回定位结果
+Eigen::MatrixXf Match::get6DoF()
+{
+    Eigen::Matrix<float, 6, 1> position;
+    position << x_, y_, z_,
+                roll_, pitch_, yaw_;
+    return position;
+}
+
+
+//匹配
+void Match::compute()
+{
+#if DEBUG
+    ROS_INFO_STREAM("compute 6DOF matrix");
+#endif
+
+    computeZRollPitch();        //计算roll, pitch, z
+
+    //第一帧处理
+    if(first_laser_)
+    {
+        pre_laser_ = laser_;
+        map_ = laser_;
+        for(pcl::PointXYZI &point : map_)
+        {
+            point.intensity = 0.5;
+        }
+        first_laser_ = false;
+    }
+
+    //计算x, y, yaw
+    matchPreLaser();    //上下两帧匹配
+    
+    matchMap();         //和地图匹配
+    updateMap();        //更新地图
+
+    if(!laser_.points.empty())
+    {
+        pre_laser_ = laser_;
+    }
+}
+
+//和地图匹配
+void Match::matchMap()
+{
+#if DEBUG
+    ROS_INFO_STREAM("match from map");
+#endif
+
+    //航际推算
+    x_ += cos(yaw_) * delta_x_ - sin(yaw_) * delta_y_;
+    y_ += sin(yaw_) * delta_x_ + cos(yaw_) * delta_y_;
+    yaw_ += delta_yaw_;
+
+    //构建kd树
+    pcl::KdTreeFLANN<pcl::PointXYZI> kdtree;
+    kdtree.setInputCloud(map_.makeShared());
+
+    //迭代优化
+    for(int iter = 0; iter < 100; iter ++)
+    {
+        pcl::PointCloud<pcl::PointXYZI> laserCloudOri, coeff;
+        //找最近点
+        for(pcl::PointXYZI point : laser_)
+        {
+            //转换到地图坐标系中
+            pcl::PointXYZI pointSel;
+            pointSel.x = cos(yaw_) * point.x - sin(yaw_) * point.y + x_;
+            pointSel.y = sin(yaw_) * point.x + cos(yaw_) * point.y + y_;
+            pointSel.z = point.z;
+
+            //kd树查找
+            std::vector<int> indices;
+            std::vector<float> distances;
+            kdtree.radiusSearch(pointSel, 0.2, indices, distances);
+
+            //距离差
+            for(int i = 0; i < indices.size(); i ++)
+            {
+                //计算距离差
+                laserCloudOri.push_back(point);
+                pcl::PointXYZI coe;
+                coe.x = map_.points[indices[i]].x - pointSel.x;
+                coe.y = map_.points[indices[i]].y - pointSel.y;
+
+                coeff.push_back(coe);
+            }
+            
+        }
+
+        //大于两个点可以计算
+        if(coeff.points.size() >= 2)
+        {
+            Eigen::MatrixXf fx(2 * coeff.points.size(), 1);
+            for(int i = 0; i < coeff.points.size(); i ++)
+            {
+                fx(2 * i, 0) = coeff.points[i].x;
+                fx(2 * i + 1, 0) = coeff.points[i].y;
+            }
+
+            //计算雅克比矩阵并求解优化
+            Eigen::MatrixXf jacobi = computeJacobi(laserCloudOri, yaw_);
+            Eigen::MatrixXf JTJ = jacobi.transpose() * jacobi;
+            Eigen::MatrixXf JTF = jacobi.transpose() * fx;
+            Eigen::MatrixXf delta = JTJ.ldlt().solve(JTF);
+
+            x_ += delta(0);
+            y_ += delta(1);
+            yaw_ += delta(2);
+
+	    if(sqrt(pow(delta(0), 2) + pow(delta(1), 2)) < 0.001 && pcl::rad2deg(delta(2)) < 0.01)
+	    {
+	         break;
+	    }
+        }
+    }
+
+    //速度计算
+    v_x_ = (x_ - pre_x_) / 0.1;
+    v_y_ = (y_ - pre_y_) / 0.1;
+    pre_x_ = x_;
+    pre_y_ = y_;
+}
+
+
+//地图点
+pcl::PointCloud<pcl::PointXYZI> Match::getMap()
+{
+    return map_;
+}
+
+
+//计算雅克比矩阵
+Eigen::MatrixXf Match::computeJacobi(pcl::PointCloud<pcl::PointXYZI> laser, float yaw)
+{
+    int cloud_size = laser.points.size();
+    Eigen::MatrixXf jacobi(2 * cloud_size, 3);
+    for(int i = 0; i < laser.points.size(); i ++)
+    {
+        pcl::PointXYZI point = laser.points[i];
+        Eigen::MatrixXf point_jacobi(2, 3);
+        point_jacobi.block<2,2>(0,0) = Eigen::Matrix2f::Identity();
+        point_jacobi(0, 2) = -sin(yaw) * point.x - cos(yaw) * point.y;
+        point_jacobi(1, 2) = cos(yaw) * point.x - sin(yaw) * point.y;
+        jacobi.block<2,3>(i * 2, 0) = point_jacobi;
+    }
+    return jacobi;
+}
+
+
+//更新地图
+void Match::updateMap()
+{
+#if DEBUG
+    ROS_INFO_STREAM("update map");
+#endif
+
+    int map_size = map_.points.size();
+
+    //构建kd树
+    pcl::KdTreeFLANN<pcl::PointXYZI> kdtree;
+    kdtree.setInputCloud(map_.makeShared());
+
+    std::vector<int> index;     //需要更新的地图点下标
+
+    for(pcl::PointXYZI point : laser_)
+    {
+        pcl::PointXYZI pointSel;
+        pointSel.x = cos(yaw_) * point.x - sin(yaw_) * point.y + x_;
+        pointSel.y = sin(yaw_) * point.x + cos(yaw_) * point.y + y_;
+        pointSel.z = point.z;
+        pointSel.intensity = 0.5;
+
+        //找到匹配点
+        std::vector<int> indices;
+        std::vector<float> distances;
+        kdtree.radiusSearch(pointSel, 0.05, indices, distances);
+    
+        //匹配点下标保存
+        index.insert(index.end(), indices.begin(), indices.end());
+
+        //新地图点加入，并配置权重
+        map_.push_back(pointSel);
+    }
+
+    for(int i = 0; i < map_size; i ++)
+    {
+        std::vector<int>::iterator iter = std::find(index.begin(), index.end(), i);
+        if(iter == index.end())
+        {
+            map_.points[i].intensity *= 0.9;
+        }
+        else
+        {
+            map_.points[i].intensity *= 1.1;
+        }
+
+        if(map_.points[i].intensity < 0.05 || map_.points[i].intensity > 5.0)
+        {
+            map_.erase(map_.begin() + i);
+        }
+    }
+}
+
+
+void Match::computeZRollPitch()
+{
+    z_ = -ground_matrix_(3) / ground_matrix_(2);
+
+    //旋转轴与旋转角度
+    Eigen::Vector3f ground = ground_matrix_.head(3);
+    Eigen::Vector3f rotation_axis = Eigen::Vector3f::UnitZ().cross(ground);
+    
+    float theta = asin(rotation_axis.norm());
+    rotation_axis.normalize();
+    
+    Eigen::AngleAxisf rotation_vector(theta, rotation_axis);
+    Eigen::Matrix3f R = rotation_vector.matrix();
+    pitch_ = asin(R(0,2));
+    roll_ = asin(-R(1,2)/cos(pitch_));
+
+    //速度计算
+    v_z_ = (z_ - pre_z_) / 0.1;
+    pre_z_ = z_;
+}
+
+
+Eigen::Vector3f Match::getVelocity()
+{
+    return Eigen::Vector3f(v_x_, v_y_, v_z_);
+}
