@@ -125,7 +125,7 @@ void ImageSegment::labelComponent(int row, int col)
 
         for(int i = -1; i <= 1; i ++)   //上下两个点
         {
-            for(int j = -1; j <= 1; j ++)   //左右两个点
+            for(int j = -2; j <= 2; j ++)   //左右两个点
             {
                 //计算相邻点下标
                 int neighborhood_ind_x = from_ind.first + i;
@@ -146,8 +146,11 @@ void ImageSegment::labelComponent(int row, int col)
                 float diff_x = full_cloud_[index_ind].x - full_cloud_[index_neighborhood].x;
                 float diff_y = full_cloud_[index_ind].y - full_cloud_[index_neighborhood].y;
                 
+                float depth = range_mat_(from_ind.first, from_ind.second) > range_mat_(neighborhood_ind_x, neighborhood_ind_y) ? range_mat_(neighborhood_ind_x, neighborhood_ind_y) : range_mat_(from_ind.first, from_ind.second);
+                float thresh = 0.5 > (0.01 * depth) ? 0.5 : (0.01 * depth);
+
                 //相邻两个点距离足够近,是同一类点
-                if(sqrt(pow(diff_x, 2) + pow(diff_y, 2)) < 1.0)
+                if(sqrt(pow(diff_x, 2) + pow(diff_y, 2)) < thresh)
                 {
                     queue_ind.push(std::pair<int, int>(neighborhood_ind_x, neighborhood_ind_y));
                     
@@ -157,6 +160,23 @@ void ImageSegment::labelComponent(int row, int col)
 
                     all_pushed_ind.push_back(std::pair<int, int>(neighborhood_ind_x, neighborhood_ind_y));
                     all_pushed_pointcloud.push_back(full_cloud_.points[index_neighborhood]);
+                }
+                else
+                {
+                    //遮挡或平行光线
+                    if(i == 0 && full_cloud_[index_ind].intensity != 0 && full_cloud_[index_ind].intensity != 0)
+                    {
+                        if(range_mat_(from_ind.first, from_ind.second) > range_mat_(neighborhood_ind_x, neighborhood_ind_y))
+                        {
+                            full_cloud_.points[index_ind].intensity += 0.01;
+                            hide_cloud_.push_back(full_cloud_.points[index_ind]);
+                        }
+                        else
+                        {
+                            full_cloud_.points[index_neighborhood].intensity += 0.01;
+                            hide_cloud_.push_back(full_cloud_.points[index_neighborhood]);
+                        }
+                    }
                 }
             }
         }
@@ -258,11 +278,13 @@ void ImageSegment::init()
     ground_.clear();
     segment_cloud_.clear();
 
+    hide_cloud_.clear();        //遮挡或者平行产生的点云
 }
 
 
 std::vector<pcl::PointCloud<pcl::PointXYZI> > ImageSegment::getSegmentCloud()
 {
+    std::sort(segment_cloud_.begin(), segment_cloud_.end(), compareSize);
     return segment_cloud_;
 }
 
@@ -279,4 +301,7 @@ pcl::PointCloud<pcl::PointXYZI> ImageSegment::getFullCloud()
 }
 
 
-
+pcl::PointCloud<pcl::PointXYZI> ImageSegment::getHideCloud()
+{
+    return hide_cloud_;
+}

@@ -7,6 +7,7 @@
 #include <pcl/io/pcd_io.h>
 #include <ros/ros.h>
 #include <queue>
+#include "Common.h"
 
 const int N_SCANS = 16;     //垂直分辨率2度
 const int HORIZON_SCANS = 1800;     //水平分辨率0.2度
@@ -26,7 +27,8 @@ public:
 
     //得到分割后的点云簇
     std::vector<pcl::PointCloud<pcl::PointXYZI> > getSegmentCloud();
-    
+
+    pcl::PointCloud<pcl::PointXYZI> getHideCloud();
 
     //点云分割
     bool segment();
@@ -54,6 +56,8 @@ private:
 
     pcl::PointCloud<pcl::PointXYZI> ground_;        //地面点
     std::vector<pcl::PointCloud<pcl::PointXYZI> > segment_cloud_;   //分割点云
+
+    pcl::PointCloud<pcl::PointXYZI> hide_cloud_;
 };
 
 

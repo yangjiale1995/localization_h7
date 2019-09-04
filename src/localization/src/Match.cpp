@@ -78,8 +78,8 @@ void Match::setPointCloud(pcl::PointCloud<pcl::PointXYZI> laser)
 #endif
 
     laser_.clear();
-    deleteHide(laser);
-
+    laser_ = laser;
+    //deleteHide(laser);
 }
 
 //地面参数方程
@@ -120,7 +120,7 @@ void Match::matchPreLaser()
             std::vector<int> indices;
             std::vector<float> distances;
             kdtree.nearestKSearch(pointSel, 1, indices, distances);
-            if(sqrt(distances[0]) > 1.0 / iter)
+            if(sqrt(distances[0]) > 0.3)
                 continue;
 
             //计算点点距
@@ -128,7 +128,7 @@ void Match::matchPreLaser()
             pcl::PointXYZI coe;
             coe.x = pre_laser_.points[indices[0]].x - pointSel.x;
             coe.y = pre_laser_.points[indices[0]].y - pointSel.y;
-	    coeff.push_back(coe);
+    	    coeff.push_back(coe);
         }
 
         //超过2个点就可以计算
@@ -269,10 +269,10 @@ void Match::matchMap()
             y_ += delta(1);
             yaw_ += delta(2);
 
-	    if(sqrt(pow(delta(0), 2) + pow(delta(1), 2)) < 0.001 && pcl::rad2deg(delta(2)) < 0.01)
-	    {
-	         break;
-	    }
+    	    if(sqrt(pow(delta(0), 2) + pow(delta(1), 2)) < 0.001 && pcl::rad2deg(delta(2)) < 0.01)
+	        {
+	             break;
+	        }
         }
     }
 

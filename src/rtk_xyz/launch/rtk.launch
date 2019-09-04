@@ -1,0 +1,3 @@
+<launch>
+    <node pkg="rtk_xyz" name="rtk_xyz" type="rtk_xyz_node" output="screen"/>
+</launch>

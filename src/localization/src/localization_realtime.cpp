@@ -14,8 +14,6 @@ Match match;
 
 void callback(const sensor_msgs::PointCloud2::ConstPtr &msg)
 {
-    //std::cout << "..........." << std::endl;
-    
     double startTime = ros::Time::now().toSec();
 
     pcl::PointCloud<pcl::PointXYZI> laser;

@@ -34,3 +34,9 @@ bool compareY(pcl::PointXYZI point1, pcl::PointXYZI point2)
     }
 }
 
+
+//按照size大小排序
+bool compareSize(pcl::PointCloud<pcl::PointXYZI> laser1, pcl::PointCloud<pcl::PointXYZI> laser2)
+{
+    return laser1.points.size() > laser2.points.size();
+}

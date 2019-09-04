@@ -1,18 +1,19 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(localization)
+project(rtk_xyz)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
- add_compile_options(-std=c++11)
+# add_compile_options(-std=c++11)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   roscpp
+  rospy
   sensor_msgs
+  control_msgs
+  novatel_gps_msgs
 )
-
-find_package(PCL REQUIRED)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -105,8 +106,8 @@ find_package(PCL REQUIRED)
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
 #  INCLUDE_DIRS include
-#  LIBRARIES localization
-#  CATKIN_DEPENDS roscpp sensor_msgs
+#  LIBRARIES rtk_xyz
+#  CATKIN_DEPENDS roscpp rospy sensor_msgs
 #  DEPENDS system_lib
 )
 
@@ -117,14 +118,13 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
- include/localization
+ include/rtk_xyz
   ${catkin_INCLUDE_DIRS}
-  ${PCL_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
 # add_library(${PROJECT_NAME}
-#   src/${PROJECT_NAME}/localization.cpp
+#   src/${PROJECT_NAME}/rtk_xyz.cpp
 # )
 
 ## Add cmake target dependencies of the library
@@ -135,13 +135,8 @@ include_directories(
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable(${PROJECT_NAME}_node 
-                    src/localization_realtime.cpp
-                    #src/localization.cpp
-                    src/ImageSegment.cpp
-				    src/Feature.cpp
-				    src/Match.cpp
-				    src/Common.cpp)
+add_executable(${PROJECT_NAME}_node  src/Common.cpp
+	                              src/rtk_xyz_node.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -156,7 +151,6 @@ add_executable(${PROJECT_NAME}_node
 ## Specify libraries to link a library or executable target against
  target_link_libraries(${PROJECT_NAME}_node
    ${catkin_LIBRARIES}
-   ${PCL_LIBRARIES}
  )
 
 #############
@@ -199,7 +193,7 @@ add_executable(${PROJECT_NAME}_node
 #############
 
 ## Add gtest based cpp test target and link libraries
-# catkin_add_gtest(${PROJECT_NAME}-test test/test_localization.cpp)
+# catkin_add_gtest(${PROJECT_NAME}-test test/test_rtk_xyz.cpp)
 # if(TARGET ${PROJECT_NAME}-test)
 #   target_link_libraries(${PROJECT_NAME}-test ${PROJECT_NAME})
 # endif()

@@ -15,34 +15,6 @@
 #include "Common.h"
 
 
-struct Point
-{
-    Point(double x, double y): x_(x), y_(y) {}
-    template <typename T>
-    bool operator()(const T* const pose, const T* const map_point, T* residual) const
-    {
-        Eigen::Matrix<T, 2, 2> R;
-        R(0, 0) = ceres::cos(pose[2]);
-        R(0, 1) = -ceres::sin(pose[2]);
-        R(1, 0) = ceres::sin(pose[2]);
-        R(1, 1) = ceres::cos(pose[2]);
-
-        Eigen::Matrix<T, 2, 1> p;
-        p(0) = T(x_);
-        p(1) = T(y_);
-
-        Eigen::Matrix<T, 2, 1> mp = R * p;
-
-        residual[0] = T(map_point[0]) - (mp(0) + pose[0]);
-        residual[1] = T(map_point[1]) - (mp(1) + pose[1]);
-    }
-
-    double x_;
-    double y_;
-};
-
-
-
 //特征匹配类
 class Match
 {

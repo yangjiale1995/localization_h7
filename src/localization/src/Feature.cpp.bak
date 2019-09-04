@@ -8,7 +8,7 @@ Feature::Feature()
 {
     //分割函数参数设置
     segment_.setOptimizeCoefficients(true);
-    segment_.setDistanceThreshold(0.05);
+    segment_.setDistanceThreshold(0.10);
     segment_.setMaxIterations(100);
     segment_.setProbability(0.8);
 
@@ -55,16 +55,11 @@ void Feature::compute()
     //对每簇点云进行轮廓提取
     for(int i = 0; i < laser_segment_.size(); i ++)
     {
-        border_.clear();
         detectPlane(laser_segment_[i]); 
-        if(border_.points.size() == 0)
-            continue;
-        
-        detectLine();
     }
 
     //边缘线提取
-    //detectLine();
+    detectLine();
 
 }
 
@@ -125,7 +120,6 @@ void Feature::detectPlane(pcl::PointCloud<pcl::PointXYZI> laser)
         voxel_grid.filter(laser);
 
         border_ += laser;
-        return;
     }
 
     //提取平面点
@@ -196,26 +190,15 @@ pcl::PointCloud<pcl::PointXYZI> Feature::detectBorder(pcl::PointCloud<pcl::Point
     pcl::PointCloud<pcl::PointXYZI> border;
     //提取每一条线的最大值和最小值
     int scan_id = (int)plane.points[0].intensity;
-    
-    if(fabs(plane.points[0].intensity - scan_id) == 0)
-    {
-        border.push_back(plane.points[0]);
-    }
-
+    //border_.push_back(plane.points[0]);
+    border.push_back(plane.points[0]);
     for(int i = 1; i < plane.points.size(); i ++)
     {
         if(scan_id != (int)plane.points[i].intensity)
         {
-            if(fabs(plane.points[i - 1].intensity - scan_id) == 0)
-            {
-                border.push_back(plane.points[i - 1]);
-            }
-
+            border.push_back(plane.points[i - 1]);
+            border.push_back(plane.points[i]);
             scan_id = (int)plane.points[i].intensity;
-            if(fabs(plane.points[i].intensity - scan_id) == 0)
-            {
-                border.push_back(plane.points[i]);
-            }
         }
     }
     border.push_back(plane.points[plane.points.size() - 1]);
@@ -246,7 +229,7 @@ void Feature::detectLine()
     segment_.setMethodType(pcl::SAC_RANSAC);
     segment_.setDistanceThreshold(0.1);
 
-    while(border.points.size() > points_thresh)
+    while(border_.points.size() > points_thresh)
     {
         pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients());
         pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
@@ -258,7 +241,7 @@ void Feature::detectLine()
         if(inliers->indices.size() < points_thresh)
         {
             //边缘线少于２条，无法计算定位，需要降低提取标准继续提取特征点
-            if(feature_points_.points.size() <= 3)
+            if(feature_points_.points.size() <= 2)
             {
                 points_thresh --;
                 if(points_thresh < 3)   //阈值过小
